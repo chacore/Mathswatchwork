@@ -1,0 +1,222 @@
+extends KinematicBody2D
+
+# Player movement variables
+export (int) var MOVE_SPEED = 200
+export (int) var JUMP_FORCE = -400
+var velocity = Vector2()
+
+# Double jump variables
+var can_double_jump = false
+var double_jump_used = false
+
+# Speed boost variables
+var speed_boost_active = false
+var speed_boost_timer = 0
+const SPEED_BOOST_DURATION = 5
+const BOOSTED_MOVE_SPEED = 400
+
+# Invincibility variables
+var invincibility_active = false
+var invincibility_timer = 0
+const INVINCIBILITY_DURATION = 5
+
+# Player health
+var health = 100
+
+# Enemy variables
+var move_speed = 100
+var patrol_distance = 200.0
+var shoot_interval = 2  # seconds between shots
+var detection_range = 300.0
+
+var direction = 1
+var start_position
+var shoot_timer = 0
+
+# Boss variables
+export (int) var max_health = 1000
+export (float) var phase2_threshold = 0.6
+export (float) var phase3_threshold = 0.3
+var current_health = max_health
+var phase = 1
+var attack_timer = 0
+
+# Signals
+signal boss_defeated
+
+func _ready():
+    current_health = max_health
+    phase = 1
+    attack_timer = 0
+
+func _physics_process(delta):
+    # Player movement
+    velocity.x = MOVE_SPEED * (Input.is_action_pressed("ui_right") - Input.is_action_pressed("ui_left"))
+
+    if is_on_floor():
+        velocity.y = 0
+        double_jump_used = false
+
+    if Input.is_action_just_pressed("ui_up"):
+        if is_on_floor():
+            velocity.y = JUMP_FORCE
+        elif can_double_jump and not double_jump_used:
+            velocity.y = JUMP_FORCE
+            double_jump_used = true
+
+    velocity.y += 20
+
+    if speed_boost_active:
+        speed_boost_timer -= delta
+        if speed_boost_timer <= 0:
+            speed_boost_active = false
+            MOVE_SPEED = 200
+
+    if invincibility_active:
+        invincibility_timer -= delta
+        if invincibility_timer <= 0:
+            invincibility_active = false
+            $Sprite.modulate = Color(1, 1, 1, 1)
+
+    velocity = move_and_slide(velocity, Vector2.UP)
+
+    # Enemy behavior
+    move_and_slide(Vector2(move_speed * direction, 0))
+    if abs(position.x - start_position.x) > patrol_distance:
+        direction *= -1
+
+    shoot_timer -= delta
+    if shoot_timer <= 0:
+        shoot()
+        shoot_timer = shoot_interval
+
+    # Boss behavior
+    attack_timer -= delta
+
+    if current_health <= max_health * phase3_threshold:
+        phase = 3
+    elif current_health <= max_health * phase2_threshold:
+        phase = 2
+
+    if attack_timer <= 0:
+        if phase == 1:
+            perform_phase1_attack()
+        elif phase == 2:
+            perform_phase2_attack()
+        elif phase == 3:
+            perform_phase3_attack()
+
+func perform_phase1_attack():
+    var rand = randi() % 2
+    if rand == 0:
+        melee_swipe()
+    else:
+        projectile_attack()
+    attack_timer = 3  # Adjust timing as needed
+
+func perform_phase2_attack():
+    var rand = randi() % 3
+    if rand == 0:
+        melee_swipe()
+    elif rand == 1:
+        projectile_attack()
+    else:
+        ground_slam()
+    attack_timer = 2  # Adjust timing as needed
+
+func perform_phase3_attack():
+    var rand = randi() % 3
+    if rand == 0:
+        melee_swipe()
+    elif rand == 1:
+        projectile_attack()
+    else:
+        ground_slam()
+    attack_timer = 1  # Adjust timing as needed
+
+func melee_swipe():
+    # Logic for melee swipe attack
+    print("Melee Swipe")
+
+func projectile_attack():
+    # Logic for projectile attack
+    print("Projectile Attack")
+    var projectile = ProjectileScene.instance()
+    projectile.position = position
+    get_parent().add_child(projectile)
+
+func ground_slam():
+    # Logic for ground slam attack
+    print("Ground Slam")
+
+func take_damage(amount):
+    current_health -= amount
+    if current_health <= 0:
+        emit_signal("boss_defeated")
+        queue_free()
+
+func apply_double_jump():
+    can_double_jump = true
+
+func apply_speed_boost():
+    speed_boost_active = true
+    speed_boost_timer = SPEED_BOOST_DURATION
+    MOVE_SPEED = BOOSTED_MOVE_SPEED
+
+func apply_invincibility():
+    invincibility_active = true
+    invincibility_timer = INVINCIBILITY_DURATION
+    $Sprite.modulate = Color(1, 1, 1, 0.5)  # Make player semi-transparent
+
+func die():
+    if not invincibility_active:
+        # Handle player death
+        pass
+
+# Enemy shooting logic
+func shoot():
+    var bullet = BulletScene.instance()
+    bullet.position = position
+    bullet.direction = Vector2(direction, 0)
+    get_parent().add_child(bullet)
+
+# Projectile behavior
+extends KinematicBody2D
+
+export (int) var speed = 300
+var direction = Vector2()
+
+func _physics_process(delta):
+    move_and_slide(direction * speed)
+
+func _on_Projectile_body_entered(body):
+    if body.name == "Player":
+        body.take_damage(10)  # Adjust damage as needed
+        queue_free()
+
+# Pressure plate logic
+extends Area2D
+
+signal activated
+signal deactivated
+
+func _on_Area2D_body_entered(body):
+    if body.name == "Player":
+        emit_signal("activated")
+
+func _on_Area2D_body_exited(body):
+    if body.name == "Player":
+        emit_signal("deactivated")
+
+# Timed door logic
+extends StaticBody2D
+
+onready var door_sprite = $Sprite
+
+func open():
+    door_sprite.visible = false
+    $CollisionShape2D.disabled = true
+
+func close():
+    door_sprite.visible = true
+    $CollisionShape2D.disabled = false
